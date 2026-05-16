@@ -1,0 +1,18 @@
+# Runtime and packages (platform-specific, large binaries)
+runtime/
+packages/
+
+# Logs
+logs/
+
+# User data (config, sessions, keys, workspace)
+data/hermes/
+data/workspace/
+data/home/
+data/temp/
+data/ollama-models/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini

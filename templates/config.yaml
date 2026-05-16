@@ -1,0 +1,20 @@
+# Hermes USB Portable — Default Config
+# First run will copy this to data/hermes/config.yaml
+# Edit with menu option "Setup / Change AI" or manually
+
+agents:
+  defaults:
+    workspace: "${HERMES_PORTABLE_WORKSPACE}"
+
+gateway:
+  mode: local
+  port: 18790
+  bind: loopback
+
+model:
+  provider: openrouter
+
+# Add your API keys in data/hermes/.env (not here!)
+# OPENROUTER_API_KEY=your-key
+# ANTHROPIC_API_KEY=your-key
+# ...
