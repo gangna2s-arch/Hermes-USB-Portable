@@ -55,6 +55,15 @@ function Install-PythonIfNeeded {
 
   Write-Step "Installing Python 3.11 via uv (portable)"
   & $UvExe python install 3.11 --install-dir $PythonDir
+
+  # uv names the binary python3.11.exe — copy/rename to python.exe
+  $realPython = Get-ChildItem $PythonDir -Filter "python*.exe" |
+    Where-Object { $_.Name -match "^python\d" } |
+    Select-Object -First 1
+  if ($realPython -and $realPython.Name -ne "python.exe") {
+    Copy-Item $realPython.FullName (Join-Path $PythonDir "python.exe")
+    Write-Step "Copied $($realPython.Name) -> python.exe"
+  }
 }
 
 # ============================================================================
