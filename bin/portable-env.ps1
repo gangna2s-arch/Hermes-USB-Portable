@@ -11,7 +11,6 @@ $env:HERMES_PORTABLE_ROOT = $Root
 $env:HERMES_PORTABLE_PLATFORM = $Platform
 $env:HERMES_HOME = Join-Path $Root "data\hermes"
 $env:HERMES_PORTABLE_WORKSPACE = Join-Path $Root "data\workspace"
-$env:OLLAMA_MODELS = Join-Path $Root "data\ollama-models"
 $env:HOME = Join-Path $Root "data\home"
 $env:XDG_CONFIG_HOME = Join-Path $Root "data\home\.config"
 $env:XDG_CACHE_HOME = Join-Path $Root "data\home\.cache"

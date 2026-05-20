@@ -17,12 +17,6 @@ $HermesVenv = Join-Path $HermesRepo ".venv"
 $HermesBin = Join-Path $HermesVenv "Scripts\hermes.exe"
 $GatewayLog = Join-Path $Root "logs\gateway-windows.log"
 $GatewayPid = Join-Path $Root "logs\gateway-windows.pid"
-$OllamaDir = Join-Path $RuntimeDir "ollama"
-$OllamaExe = Join-Path $OllamaDir "ollama.exe"
-$OllamaModels = Join-Path $Root "data\ollama-models"
-$OllamaLog = Join-Path $Root "logs\ollama-windows.log"
-$OllamaPid = Join-Path $Root "logs\ollama-windows.pid"
-
 function Write-Step([string]$Text) {
   Write-Host "[portable-hermes] $Text" -ForegroundColor Cyan
 }
@@ -208,160 +202,6 @@ function Start-Gateway([switch]$Force) {
 }
 
 # ============================================================================
-# Ollama
-# ============================================================================
-function Test-OllamaRunning {
-  if (Test-Path -LiteralPath $OllamaPid) {
-    $pid = Get-Content $OllamaPid -Raw
-    if ($pid) {
-      try {
-        $proc = Get-Process -Id ([int]$pid) -ErrorAction SilentlyContinue
-        return ($null -ne $proc)
-      } catch { return $false }
-    }
-  }
-  return $false
-}
-
-function Install-OllamaIfNeeded {
-  if (Test-Path -LiteralPath $OllamaExe) {
-    Write-Step "Portable Ollama already exists for $Platform"
-    return
-  }
-
-  Write-Step "Downloading Ollama for Windows (~100 MB)"
-  New-Item -ItemType Directory -Force -Path $OllamaDir, $OllamaModels | Out-Null
-  $ollamaDl = Join-Path $Root "packages\downloads\ollama-windows.exe"
-  Invoke-WebRequest -Uri "https://ollama.com/download/ollama-windows-amd64.exe" -OutFile $ollamaDl
-  Move-Item $ollamaDl $OllamaExe -Force
-  Write-Step "Ollama installed"
-}
-
-function Start-Ollama {
-  if (Test-OllamaRunning) {
-    Write-Step "Ollama is already running"
-    return
-  }
-
-  if (-not (Test-Path -LiteralPath $OllamaExe)) {
-    Install-OllamaIfNeeded
-  }
-
-  Write-Step "Starting Ollama (port 11434, models: $OllamaModels)"
-  $env:OLLAMA_HOST = "127.0.0.1:11434"
-  $env:OLLAMA_MODELS = $OllamaModels
-
-  $proc = Start-Process -FilePath $OllamaExe `
-    -ArgumentList "serve" `
-    -RedirectStandardOutput $OllamaLog `
-    -RedirectStandardError $OllamaLog `
-    -WindowStyle Hidden `
-    -PassThru
-  $proc.Id | Set-Content $OllamaPid
-
-  $deadline = (Get-Date).AddSeconds(30)
-  while ((Get-Date) -lt $deadline) {
-    try {
-      $r = Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -TimeoutSec 2 -ErrorAction SilentlyContinue
-      if ($r.StatusCode -eq 200) { Write-Step "Ollama ready on port 11434"; return }
-    } catch {}
-    Start-Sleep 1
-  }
-  Write-Step "Ollama may still be starting. Check logs."
-}
-
-function Stop-Ollama {
-  if (Test-Path -LiteralPath $OllamaPid) {
-    $pid = Get-Content $OllamaPid -Raw
-    if ($pid) { Stop-Process -Id ([int]$pid) -Force -ErrorAction SilentlyContinue }
-    Remove-Item $OllamaPid -Force -ErrorAction SilentlyContinue
-    Write-Step "Ollama stopped"
-  } else {
-    Write-Step "Ollama is not running"
-  }
-}
-
-function Write-OllamaStatus {
-  if (Test-OllamaRunning) {
-    Write-Host "Ollama: RUNNING (port 11434)" -ForegroundColor Green
-    Write-Host "Models directory: $OllamaModels"
-    try {
-      $r = Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -TimeoutSec 5
-      $models = ($r.Content | ConvertFrom-Json).models
-      if ($models) {
-        Write-Host "`nInstalled models:"
-        foreach ($m in $models) {
-          $sizeGB = [math]::Round($m.size / 1GB, 1)
-          Write-Host "  - $($m.name) ($sizeGB GB)"
-        }
-      }
-    } catch { Write-Host "  (could not list models)" }
-  } else {
-    Write-Host "Ollama: STOPPED"
-  }
-}
-
-function Ollama-PullModel {
-  if (-not (Test-OllamaRunning)) {
-    Write-Host "Ollama is not running. Start it first." -ForegroundColor Yellow
-    Read-Host "Press Enter"
-    return
-  }
-
-  Write-Host
-  Write-Host "Available models to pull:"
-  Write-Host "  1. llama3.2:3b   (~2.0 GB) — light, fast"
-  Write-Host "  2. llama3.2:1b   (~1.3 GB) — tiny"
-  Write-Host "  3. gemma2:2b     (~1.6 GB) — Google"
-  Write-Host "  4. qwen2.5:3b    (~1.9 GB) — Chinese/English"
-  Write-Host "  5. mistral:7b    (~4.1 GB) — bigger"
-  Write-Host "  6. Custom"
-  Write-Host "  0. Back"
-  Write-Host
-  $mc = Read-Host "Select model"
-
-  $model = switch ($mc) {
-    "1" { "llama3.2:3b" }
-    "2" { "llama3.2:1b" }
-    "3" { "gemma2:2b" }
-    "4" { "qwen2.5:3b" }
-    "5" { "mistral:7b" }
-    "6" { Read-Host "Model name" }
-    default { $null }
-  }
-  if (-not $model) { return }
-
-  Write-Host
-  Write-Step "Pulling $model (models stored in data/ollama-models/)"
-  $body = @{name=$model} | ConvertTo-Json
-  $r = Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/pull" -Method Post -Body $body -ContentType "application/json"
-  Write-Host "Done!"
-}
-
-function Ollama-Menu {
-  do {
-    Clear-Host
-    Write-Host "Ollama (Local LLM)" -ForegroundColor Magenta
-    Write-Host ("-" * 60)
-    Write-OllamaStatus
-    Write-Host
-    Write-Host "1. Start Ollama"
-    Write-Host "2. Stop Ollama"
-    Write-Host "3. Pull Model"
-    Write-Host "0. Back"
-    Write-Host
-    $t = Read-Host "Select"
-    switch ($t) {
-      "1" { Start-Ollama }
-      "2" { Stop-Ollama }
-      "3" { Ollama-PullModel }
-      "0" { break }
-    }
-    if ($t -ne "0") { Read-Host "Press Enter to continue" }
-  } while ($t -ne "0")
-}
-
-# ============================================================================
 # UI
 # ============================================================================
 function Write-Header {
@@ -374,8 +214,6 @@ function Write-Header {
   Write-Host ("Workspace $env:HERMES_PORTABLE_WORKSPACE")
   if (Test-GatewayPort) { Write-Host "Gateway   RUNNING (port 18790)" -ForegroundColor Green }
   else { Write-Host "Gateway   STOPPED" }
-  if (Test-OllamaRunning) { Write-Host "Ollama    RUNNING (port 11434)" -ForegroundColor Green }
-  else { Write-Host "Ollama    STOPPED" }
   Write-Host ("-" * 72)
 }
 
@@ -387,13 +225,18 @@ function Invoke-Hermes([string[]]$Args) {
 # Main setup
 # ============================================================================
 Install-UvIfNeeded
-. (Join-Path $PSScriptRoot "portable-env.ps1") -Root $Root -Platform $Platform
 Install-PythonIfNeeded
 Install-HermesRepo
 Install-HermesIfNeeded
 New-ConfigIfNeeded
 
 Write-Step "Portable runtime ready"
+Write-Host ""
+Write-Host "  Hermes USB Portable uses cloud AI providers by default."
+Write-Host "  Run 'Setup / Change AI' to configure your provider."
+Write-Host "  Supported: OpenRouter, Anthropic, OpenAI, Google, DeepSeek, and more."
+Write-Host "  For local LLMs, install Ollama separately and use provider: ollama."
+Write-Host ""
 & $PythonExe --version
 & $HermesBin --version 2>$null
 Start-Sleep 1
@@ -433,8 +276,8 @@ while ($true) {
         Write-Host
         Write-Host "1. Full Setup       5. Update Hermes"
         Write-Host "2. Health Check     6. Stop Gateway"
-        Write-Host "3. Status           7. Ollama (Local LLM)"
-        Write-Host "4. Gateway Logs     0. Back"
+        Write-Host "3. Status           0. Back"
+        Write-Host "4. Gateway Logs"
         Write-Host
         $t = Read-Host "Select"
         switch ($t) {
@@ -444,7 +287,6 @@ while ($true) {
           "4" { if (Test-Path $GatewayLog) { Get-Content $GatewayLog -Tail 80 } }
           "5" { Update-Hermes }
           "6" { Stop-Gateway }
-          "7" { Ollama-Menu }
           "0" { break }
         }
         if ($t -ne "0") { Read-Host "Press Enter to continue" }
